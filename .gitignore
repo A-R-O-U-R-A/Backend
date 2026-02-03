@@ -15,5 +15,6 @@
 local.properties
 .env
 /node_modules
-client_secret_792273673707-ekiibisf3te7rbsb1ikgqqjh3ipcldpf.apps.googleusercontent.com.json
-client_secret_792273673707-m31avju0dkvch7dr7baordls3f0rfh0i.apps.googleusercontent.com.json
+
+# Google OAuth client secrets (never commit these!)
+client_secret*.json
