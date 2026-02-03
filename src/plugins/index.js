@@ -7,6 +7,7 @@ import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import multipart from '@fastify/multipart';
 import { config } from '../config/env.js';
+import { User } from '../models/user.model.js';
 
 /**
  * Register all Fastify plugins
@@ -14,24 +15,32 @@ import { config } from '../config/env.js';
 export const registerPlugins = async (fastify) => {
   // Security headers
   await fastify.register(helmet, {
-    contentSecurityPolicy: false
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
   });
 
-  // CORS
+  // CORS - Allow Android app
   await fastify.register(cors, {
-    origin: config.CORS_ORIGIN,
+    origin: true, // Allow all origins for mobile app
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
   });
 
-  // Rate limiting
+  // Rate limiting - Different limits for different routes
   await fastify.register(rateLimit, {
+    global: true,
     max: 100,
     timeWindow: '1 minute',
-    errorResponseBuilder: () => ({
-      statusCode: 429,
-      error: 'Too Many Requests',
-      message: 'Please slow down, you are being rate limited.'
+    // Stricter limits for auth endpoints
+    keyGenerator: (request) => {
+      return request.ip;
+    },
+    errorResponseBuilder: (request, context) => ({
+      success: false,
+      error: 'Too many requests',
+      code: 'RATE_LIMITED',
+      retryAfter: context.after
     })
   });
 
@@ -42,14 +51,18 @@ export const registerPlugins = async (fastify) => {
   await fastify.register(jwt, {
     secret: config.JWT_SECRET,
     sign: {
-      expiresIn: config.JWT_EXPIRES_IN
+      algorithm: 'HS256'
+    },
+    verify: {
+      algorithms: ['HS256']
     }
   });
 
   // File uploads
   await fastify.register(multipart, {
     limits: {
-      fileSize: config.MAX_FILE_SIZE
+      fileSize: config.MAX_FILE_SIZE,
+      files: 5
     }
   });
 
@@ -58,27 +71,32 @@ export const registerPlugins = async (fastify) => {
     openapi: {
       info: {
         title: 'A.R.O.U.R.A API',
-        description: 'Mental Health Companion Backend API',
-        version: '1.0.0'
+        description: 'Mental Health Companion Backend API - Production Grade',
+        version: '1.0.0',
+        contact: {
+          name: 'A.R.O.U.R.A Team'
+        }
       },
       servers: [
-        { url: 'http://localhost:5000', description: 'Development' }
+        { url: `http://localhost:${config.PORT}`, description: 'Development' },
+        { url: 'https://api.aroura.app', description: 'Production' }
       ],
       components: {
         securitySchemes: {
           bearerAuth: {
             type: 'http',
             scheme: 'bearer',
-            bearerFormat: 'JWT'
+            bearerFormat: 'JWT',
+            description: 'Enter your access token'
           }
         }
       },
       tags: [
-        { name: 'Auth', description: 'Authentication endpoints' },
-        { name: 'User', description: 'User management' },
-        { name: 'Mood', description: 'Mood tracking' },
-        { name: 'Chat', description: 'AI Chat' },
-        { name: 'Reflect', description: 'Self-discovery tests' }
+        { name: 'Auth', description: 'Authentication - Login, Register, OAuth' },
+        { name: 'User', description: 'User profile management' },
+        { name: 'Mood', description: 'Mood tracking and journaling' },
+        { name: 'Chat', description: 'AI Chat conversations' },
+        { name: 'Reflect', description: 'Self-discovery assessments' }
       ]
     }
   });
@@ -87,20 +105,45 @@ export const registerPlugins = async (fastify) => {
     routePrefix: '/docs',
     uiConfig: {
       docExpansion: 'list',
-      deepLinking: true
+      deepLinking: true,
+      persistAuthorization: true
     }
   });
 
-  // Authentication decorator
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Decorators
+  // ─────────────────────────────────────────────────────────────────────────────
+  
+  // Add User model to fastify for easy access
+  fastify.decorate('mongoose', { User });
+
+  // Authentication decorator - Verify JWT and load user
   fastify.decorate('authenticate', async (request, reply) => {
     try {
-      await request.jwtVerify();
+      const decoded = await request.jwtVerify();
+      
+      // Verify token type
+      if (decoded.type && decoded.type !== 'access') {
+        throw new Error('Invalid token type');
+      }
+      
+      request.user = decoded;
     } catch (err) {
-      reply.code(401).send({
-        statusCode: 401,
-        error: 'Unauthorized',
-        message: 'Invalid or expired token'
+      return reply.code(401).send({
+        success: false,
+        error: 'Invalid or expired token',
+        code: 'UNAUTHORIZED'
       });
+    }
+  });
+
+  // Optional auth - Doesn't fail if no token
+  fastify.decorate('optionalAuth', async (request) => {
+    try {
+      const decoded = await request.jwtVerify();
+      request.user = decoded;
+    } catch {
+      request.user = null;
     }
   });
 
