@@ -51,7 +51,13 @@ export const config = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   GEMINI_API_NAME: process.env.GEMINI_API_NAME,
   GEMINI_PROJECT_NAME: process.env.GEMINI_PROJECT_NAME,
-  GEMINI_PROJECT_NUMBER: process.env.GEMINI_PROJECT_NUMBER
+  GEMINI_PROJECT_NUMBER: process.env.GEMINI_PROJECT_NUMBER,
+  
+  // Audio APIs
+  FREESOUND_API_KEY: process.env.FREESOUND_API_KEY,
+  FREESOUND_CLIENT_ID: process.env.FREESOUND_CLIENT_ID,
+  JAMENDO_CLIENT_ID: process.env.JAMENDO_CLIENT_ID,
+  JAMENDO_CLIENT_SECRET: process.env.JAMENDO_CLIENT_SECRET
 };
 
 // Validate required environment variables
