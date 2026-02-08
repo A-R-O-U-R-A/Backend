@@ -22,10 +22,14 @@ export const config = {
   MONGO_CHAT_URI: process.env.AROURA_CHAT_MONGO_URI,
   MONGO_REFLECT_URI: process.env.AROURA_REFLECT_MONGO_URI,
   
-  // Redis
+  // Redis (Local)
   REDIS_HOST: process.env.REDIS_HOST || 'localhost',
   REDIS_PORT: parseInt(process.env.REDIS_PORT) || 6379,
   REDIS_PASSWORD: process.env.REDIS_PASSWORD || '',
+  
+  // Upstash Redis (Cloud)
+  UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+  UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
   
   // JWT
   JWT_SECRET: process.env.JWT_SECRET,
@@ -41,7 +45,13 @@ export const config = {
   UPLOAD_DIR: process.env.UPLOAD_DIR || 'uploads',
   
   // CORS
-  CORS_ORIGIN: process.env.CORS_ORIGIN?.split(',') || ['*']
+  CORS_ORIGIN: process.env.CORS_ORIGIN?.split(',') || ['*'],
+  
+  // Gemini AI
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  GEMINI_API_NAME: process.env.GEMINI_API_NAME,
+  GEMINI_PROJECT_NAME: process.env.GEMINI_PROJECT_NAME,
+  GEMINI_PROJECT_NUMBER: process.env.GEMINI_PROJECT_NUMBER
 };
 
 // Validate required environment variables

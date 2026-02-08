@@ -3,6 +3,8 @@ import { config } from './config/env.js';
 import { registerPlugins } from './plugins/index.js';
 import { registerRoutes } from './routes/index.js';
 import { connectDatabases } from './database/index.js';
+import { geminiService } from './services/gemini.service.js';
+import { redisService } from './services/redis.service.js';
 
 /**
  * A.R.O.U.R.A Backend Server
@@ -12,6 +14,7 @@ import { connectDatabases } from './database/index.js';
  * - MongoDB for data persistence
  * - Redis for caching & sessions
  * - Cloudinary for media storage
+ * - Gemini AI for chat personas
  */
 
 const startServer = async () => {
@@ -39,6 +42,22 @@ const startServer = async () => {
       fastify.log.warn('⚠️  Database connection failed, starting server anyway...');
       fastify.log.warn(`   Error: ${dbError.message}`);
       fastify.log.warn('   Make sure your IP is whitelisted in MongoDB Atlas');
+    }
+    
+    // Initialize AI services
+    try {
+      geminiService.initialize();
+      fastify.log.info('🤖 Gemini AI service initialized');
+    } catch (aiError) {
+      fastify.log.warn('⚠️  Gemini AI initialization failed:', aiError.message);
+    }
+    
+    // Initialize Redis (Upstash)
+    try {
+      redisService.initialize();
+      fastify.log.info('🔴 Upstash Redis service initialized');
+    } catch (redisError) {
+      fastify.log.warn('⚠️  Redis initialization failed:', redisError.message);
     }
     
     // Register plugins (CORS, JWT, Rate Limiting, etc.)

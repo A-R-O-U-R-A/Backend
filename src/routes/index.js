@@ -1,6 +1,7 @@
 import authRoutes from './auth.routes.js';
 import userRoutes from './user.routes.js';
 import moodRoutes from './mood.routes.js';
+import chatRoutes from './chat.routes.js';
 
 /**
  * Register all API routes
@@ -11,6 +12,7 @@ export const registerRoutes = async (fastify) => {
     api.register(authRoutes, { prefix: '/auth' });
     api.register(userRoutes, { prefix: '/users' });
     api.register(moodRoutes, { prefix: '/mood' });
+    api.register(chatRoutes, { prefix: '/chat' });
   }, { prefix: '/api/v1' });
 
   fastify.log.info('✅ All routes registered');
