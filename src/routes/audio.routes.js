@@ -1,158 +1,36 @@
 /**
- * A.R.O.U.R.A Audio Routes
+ * A.R.O.U.R.A Audio Routes - Calm & Peaceful Audio Endpoints
  * 
- * REST API endpoints for calm/meditation audio content:
- * - GET /audio/all - Get all categories with content
- * - GET /audio/category/:category - Get specific category
- * - GET /audio/search - Search across all sources
- * - GET /audio/nature - Nature sounds
- * - GET /audio/meditation - Meditation sounds
- * - GET /audio/music - Calm music
- * - GET /audio/devotional - Devotional content
- * - GET /audio/audiobooks - Audiobooks
+ * Endpoints for streaming calm audio content:
+ * - Nature sounds (Freesound)
+ * - Ambient soundscapes (Freesound)
+ * - Meditation sounds (Freesound)
+ * - ASMR sounds (Freesound)
+ * - Sleep sounds (Freesound)
+ * - Focus music (Jamendo)
+ * - Calm music (Jamendo)
+ * - Search (both sources, calm-filtered)
+ * 
+ * NO devotional/religious content.
+ * NO LibriVox or Internet Archive sources.
  */
 
 import { audioService } from '../services/audio.service.js';
 
-async function audioRoutes(fastify, options) {
+/**
+ * Audio routes plugin
+ */
+export default async function audioRoutes(fastify, options) {
     
     // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/all - Get all calm content
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    fastify.get('/all', {
-        schema: {
-            description: 'Get all calm audio content organized by category',
-            tags: ['audio'],
-            response: {
-                200: {
-                    type: 'object',
-                    properties: {
-                        success: { type: 'boolean' },
-                        categories: { type: 'object' },
-                        totalItems: { type: 'number' },
-                        sources: { type: 'array', items: { type: 'string' } }
-                    }
-                }
-            }
-        }
-    }, async (request, reply) => {
-        try {
-            const content = await audioService.getAllCalmContent();
-            return content;
-        } catch (error) {
-            fastify.log.error('Get all audio error:', error);
-            return reply.code(500).send({
-                success: false,
-                error: 'Failed to fetch audio content'
-            });
-        }
-    });
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/category/:category - Get specific category
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    fastify.get('/category/:category', {
-        schema: {
-            description: 'Get audio content for a specific category',
-            tags: ['audio'],
-            params: {
-                type: 'object',
-                properties: {
-                    category: { 
-                        type: 'string',
-                        enum: ['nature', 'meditation', 'calm_music', 'devotional', 'audiobooks']
-                    }
-                },
-                required: ['category']
-            }
-        }
-    }, async (request, reply) => {
-        try {
-            const { category } = request.params;
-            const content = await audioService.getCategoryContent(category);
-            
-            return {
-                success: true,
-                category,
-                ...content
-            };
-        } catch (error) {
-            fastify.log.error('Get category error:', error);
-            return reply.code(500).send({
-                success: false,
-                error: 'Failed to fetch category content'
-            });
-        }
-    });
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/search - Search across all sources
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    fastify.get('/search', {
-        schema: {
-            description: 'Search for audio across all legal sources',
-            tags: ['audio'],
-            querystring: {
-                type: 'object',
-                properties: {
-                    q: { type: 'string', minLength: 2 },
-                    source: { 
-                        type: 'string',
-                        enum: ['all', 'freesound', 'jamendo', 'archive', 'librivox']
-                    },
-                    page: { type: 'number', default: 1 },
-                    limit: { type: 'number', default: 20 }
-                },
-                required: ['q']
-            }
-        }
-    }, async (request, reply) => {
-        try {
-            const { q, source = 'all', page = 1, limit = 20 } = request.query;
-            
-            let results;
-            
-            switch (source) {
-                case 'freesound':
-                    results = await audioService.searchFreesound(q, page, limit);
-                    break;
-                case 'jamendo':
-                    results = await audioService.searchJamendo(q, page, limit);
-                    break;
-                case 'archive':
-                    results = { results: await audioService.searchInternetArchive(q), total: 0 };
-                    break;
-                case 'librivox':
-                    results = { results: await audioService.searchLibrivox(q), total: 0 };
-                    break;
-                default:
-                    results = await audioService.searchAllSources(q);
-            }
-            
-            return {
-                success: true,
-                ...results
-            };
-        } catch (error) {
-            fastify.log.error('Search audio error:', error);
-            return reply.code(500).send({
-                success: false,
-                error: 'Search failed'
-            });
-        }
-    });
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/nature - Nature sounds
+    // NATURE SOUNDS (Freesound)
     // ═══════════════════════════════════════════════════════════════════════════
     
     fastify.get('/nature', {
         schema: {
-            description: 'Get nature sounds (rain, ocean, forest, etc.)',
-            tags: ['audio']
+            tags: ['audio'],
+            summary: 'Get nature sounds',
+            description: 'Fetch curated nature sounds: rain, ocean, forest, birds, etc.'
         }
     }, async (request, reply) => {
         try {
@@ -160,28 +38,61 @@ async function audioRoutes(fastify, options) {
             return {
                 success: true,
                 category: 'nature',
-                title: 'Nature Sounds',
                 items,
+                total: items.length,
                 loop_allowed: true,
                 sleep_timer_supported: true
             };
         } catch (error) {
             fastify.log.error('Nature sounds error:', error);
-            return reply.code(500).send({
+            return reply.status(500).send({
                 success: false,
-                error: 'Failed to fetch nature sounds'
+                error: 'Failed to fetch nature sounds',
+                items: []
             });
         }
     });
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/meditation - Meditation sounds
+    // AMBIENT SOUNDS (Freesound)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fastify.get('/ambient', {
+        schema: {
+            tags: ['audio'],
+            summary: 'Get ambient soundscapes',
+            description: 'Fetch ambient atmospheres, drones, and textures'
+        }
+    }, async (request, reply) => {
+        try {
+            const items = await audioService.getAmbientSounds();
+            return {
+                success: true,
+                category: 'ambient',
+                items,
+                total: items.length,
+                loop_allowed: true,
+                sleep_timer_supported: true
+            };
+        } catch (error) {
+            fastify.log.error('Ambient sounds error:', error);
+            return reply.status(500).send({
+                success: false,
+                error: 'Failed to fetch ambient sounds',
+                items: []
+            });
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MEDITATION SOUNDS (Freesound)
     // ═══════════════════════════════════════════════════════════════════════════
     
     fastify.get('/meditation', {
         schema: {
-            description: 'Get meditation sounds (singing bowls, bells, chanting)',
-            tags: ['audio']
+            tags: ['audio'],
+            summary: 'Get meditation sounds',
+            description: 'Fetch singing bowls, bells, gongs for meditation'
         }
     }, async (request, reply) => {
         try {
@@ -189,195 +100,387 @@ async function audioRoutes(fastify, options) {
             return {
                 success: true,
                 category: 'meditation',
-                title: 'Meditation & Mantras',
                 items,
+                total: items.length,
                 loop_allowed: true,
                 sleep_timer_supported: true
             };
         } catch (error) {
             fastify.log.error('Meditation sounds error:', error);
-            return reply.code(500).send({
+            return reply.status(500).send({
                 success: false,
-                error: 'Failed to fetch meditation sounds'
+                error: 'Failed to fetch meditation sounds',
+                items: []
             });
         }
     });
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/music - Calm music
+    // ASMR SOUNDS (Freesound)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fastify.get('/asmr', {
+        schema: {
+            tags: ['audio'],
+            summary: 'Get ASMR sounds',
+            description: 'Fetch soft tapping, page turning, brushing sounds'
+        }
+    }, async (request, reply) => {
+        try {
+            const items = await audioService.getASMRSounds();
+            return {
+                success: true,
+                category: 'asmr',
+                items,
+                total: items.length,
+                loop_allowed: true,
+                sleep_timer_supported: true
+            };
+        } catch (error) {
+            fastify.log.error('ASMR sounds error:', error);
+            return reply.status(500).send({
+                success: false,
+                error: 'Failed to fetch ASMR sounds',
+                items: []
+            });
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SLEEP SOUNDS (Freesound)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fastify.get('/sleep', {
+        schema: {
+            tags: ['audio'],
+            summary: 'Get sleep sounds',
+            description: 'Fetch white noise, brown noise, fan sounds for sleep'
+        }
+    }, async (request, reply) => {
+        try {
+            const items = await audioService.getSleepSounds();
+            return {
+                success: true,
+                category: 'sleep',
+                items,
+                total: items.length,
+                loop_allowed: true,
+                sleep_timer_supported: true
+            };
+        } catch (error) {
+            fastify.log.error('Sleep sounds error:', error);
+            return reply.status(500).send({
+                success: false,
+                error: 'Failed to fetch sleep sounds',
+                items: []
+            });
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FOCUS MUSIC (Jamendo)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fastify.get('/focus', {
+        schema: {
+            tags: ['audio'],
+            summary: 'Get focus/study music',
+            description: 'Fetch instrumental music for concentration and productivity'
+        }
+    }, async (request, reply) => {
+        try {
+            const items = await audioService.getFocusMusic();
+            return {
+                success: true,
+                category: 'focus',
+                items,
+                total: items.length,
+                loop_allowed: false,
+                sleep_timer_supported: true
+            };
+        } catch (error) {
+            fastify.log.error('Focus music error:', error);
+            return reply.status(500).send({
+                success: false,
+                error: 'Failed to fetch focus music',
+                items: []
+            });
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // CALM MUSIC (Jamendo)
     // ═══════════════════════════════════════════════════════════════════════════
     
     fastify.get('/music', {
         schema: {
-            description: 'Get calm/relaxing music from Jamendo',
             tags: ['audio'],
-            querystring: {
-                type: 'object',
-                properties: {
-                    tags: { type: 'string', description: 'Comma-separated tags' },
-                    page: { type: 'number', default: 1 },
-                    limit: { type: 'number', default: 20 }
-                }
-            }
+            summary: 'Get calm instrumental music',
+            description: 'Fetch relaxing instrumental music - piano, ambient, classical'
         }
     }, async (request, reply) => {
         try {
-            const { tags, page = 1, limit = 20 } = request.query;
-            
-            let items;
-            if (tags) {
-                const tagArray = tags.split(',').map(t => t.trim());
-                const result = await audioService.getJamendoByTags(tagArray, limit);
-                items = result.results;
-            } else {
-                items = await audioService.getCalmMusic();
-            }
-            
+            const items = await audioService.getCalmMusic();
             return {
                 success: true,
-                category: 'calm_music',
-                title: 'Calm Music',
+                category: 'music',
                 items,
+                total: items.length,
                 loop_allowed: false,
                 sleep_timer_supported: true
             };
         } catch (error) {
             fastify.log.error('Calm music error:', error);
-            return reply.code(500).send({
+            return reply.status(500).send({
                 success: false,
-                error: 'Failed to fetch calm music'
+                error: 'Failed to fetch calm music',
+                items: []
             });
         }
     });
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/devotional - Devotional content
+    // SEARCH (All Sources with Calm Filtering)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fastify.get('/devotional', {
+    fastify.get('/search', {
         schema: {
-            description: 'Get devotional songs and mantras',
-            tags: ['audio']
+            tags: ['audio'],
+            summary: 'Search calm audio content',
+            description: 'Search across Freesound and Jamendo with calm content filtering',
+            querystring: {
+                type: 'object',
+                required: ['q'],
+                properties: {
+                    q: { type: 'string', description: 'Search query' },
+                    page: { type: 'number', default: 1 },
+                    limit: { type: 'number', default: 20, maximum: 50 }
+                }
+            }
         }
     }, async (request, reply) => {
         try {
-            const items = await audioService.getDevotionalContent();
+            const { q, page = 1, limit = 20 } = request.query;
+            
+            if (!q || q.trim().length < 2) {
+                return reply.status(400).send({
+                    success: false,
+                    error: 'Search query must be at least 2 characters',
+                    results: []
+                });
+            }
+
+            const result = await audioService.searchAll(q, { page, limit });
+            
             return {
-                success: true,
-                category: 'devotional',
-                title: 'Devotional Songs',
-                items,
-                loop_allowed: true,
-                sleep_timer_supported: true
+                success: result.success,
+                query: q,
+                category: 'search',
+                results: result.results,
+                total: result.total,
+                sources: result.sources || [],
+                page,
+                pageSize: limit
             };
         } catch (error) {
-            fastify.log.error('Devotional content error:', error);
-            return reply.code(500).send({
+            fastify.log.error('Search error:', error);
+            return reply.status(500).send({
                 success: false,
-                error: 'Failed to fetch devotional content'
+                error: 'Search failed',
+                results: []
             });
         }
     });
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/audiobooks - Audiobooks
+    // GET ALL CATEGORIES (Combined endpoint for initial load)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    fastify.get('/audiobooks', {
+    fastify.get('/all', {
         schema: {
-            description: 'Get spiritual and philosophical audiobooks',
-            tags: ['audio']
+            tags: ['audio'],
+            summary: 'Get all audio categories',
+            description: 'Fetch a sample from each category for initial app load'
         }
     }, async (request, reply) => {
         try {
-            const items = await audioService.getAudiobooks();
-            return {
-                success: true,
-                category: 'audiobooks',
-                title: 'Audio Books',
-                items,
-                loop_allowed: false,
-                sleep_timer_supported: true
-            };
-        } catch (error) {
-            fastify.log.error('Audiobooks error:', error);
-            return reply.code(500).send({
-                success: false,
-                error: 'Failed to fetch audiobooks'
-            });
-        }
-    });
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/featured - Featured/curated content
-    // ═══════════════════════════════════════════════════════════════════════════
-    
-    fastify.get('/featured', {
-        schema: {
-            description: 'Get featured/curated calm content',
-            tags: ['audio']
-        }
-    }, async (request, reply) => {
-        try {
-            // Get a mix of featured content from each category
-            const [devotional, audiobooks] = await Promise.all([
-                audioService.getDevotionalContent(),
-                audioService.getAudiobooks()
+            // Fetch from all categories in parallel
+            const [nature, ambient, meditation, asmr, sleep, focus, music] = await Promise.all([
+                audioService.getNatureSounds(),
+                audioService.getAmbientSounds(),
+                audioService.getMeditationSounds(),
+                audioService.getASMRSounds(),
+                audioService.getSleepSounds(),
+                audioService.getFocusMusic(),
+                audioService.getCalmMusic()
             ]);
 
-            // Curated featured list
-            const featured = [
-                ...devotional.slice(0, 3),
-                ...audiobooks.slice(0, 3)
-            ];
-
             return {
                 success: true,
-                title: 'Featured',
-                items: featured,
-                sleep_timer_supported: true
+                categories: {
+                    nature: { items: nature.slice(0, 10), total: nature.length },
+                    ambient: { items: ambient.slice(0, 10), total: ambient.length },
+                    meditation: { items: meditation.slice(0, 10), total: meditation.length },
+                    asmr: { items: asmr.slice(0, 8), total: asmr.length },
+                    sleep: { items: sleep.slice(0, 10), total: sleep.length },
+                    focus: { items: focus.slice(0, 10), total: focus.length },
+                    music: { items: music.slice(0, 10), total: music.length }
+                },
+                totalItems: nature.length + ambient.length + meditation.length + 
+                           asmr.length + sleep.length + focus.length + music.length
             };
         } catch (error) {
-            fastify.log.error('Featured content error:', error);
-            return reply.code(500).send({
+            fastify.log.error('Fetch all categories error:', error);
+            return reply.status(500).send({
                 success: false,
-                error: 'Failed to fetch featured content'
+                error: 'Failed to fetch audio categories',
+                categories: {}
             });
         }
     });
 
     // ═══════════════════════════════════════════════════════════════════════════
-    // GET /audio/quick - Quick calm (short tracks)
+    // GET BY CATEGORY (Dynamic category endpoint)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fastify.get('/category/:category', {
+        schema: {
+            tags: ['audio'],
+            summary: 'Get audio by category',
+            description: 'Fetch audio from a specific category',
+            params: {
+                type: 'object',
+                required: ['category'],
+                properties: {
+                    category: { 
+                        type: 'string',
+                        enum: ['nature', 'ambient', 'meditation', 'asmr', 'sleep', 'focus', 'music']
+                    }
+                }
+            }
+        }
+    }, async (request, reply) => {
+        try {
+            const { category } = request.params;
+            
+            let items;
+            let loopAllowed = true;
+            
+            switch (category) {
+                case 'nature':
+                    items = await audioService.getNatureSounds();
+                    break;
+                case 'ambient':
+                    items = await audioService.getAmbientSounds();
+                    break;
+                case 'meditation':
+                    items = await audioService.getMeditationSounds();
+                    break;
+                case 'asmr':
+                    items = await audioService.getASMRSounds();
+                    break;
+                case 'sleep':
+                    items = await audioService.getSleepSounds();
+                    break;
+                case 'focus':
+                    items = await audioService.getFocusMusic();
+                    loopAllowed = false;
+                    break;
+                case 'music':
+                    items = await audioService.getCalmMusic();
+                    loopAllowed = false;
+                    break;
+                default:
+                    return reply.status(400).send({
+                        success: false,
+                        error: `Unknown category: ${category}`,
+                        validCategories: ['nature', 'ambient', 'meditation', 'asmr', 'sleep', 'focus', 'music'],
+                        items: []
+                    });
+            }
+
+            return {
+                success: true,
+                category,
+                items,
+                total: items.length,
+                loop_allowed: loopAllowed,
+                sleep_timer_supported: true
+            };
+        } catch (error) {
+            fastify.log.error(`Category ${request.params.category} error:`, error);
+            return reply.status(500).send({
+                success: false,
+                error: `Failed to fetch ${request.params.category} content`,
+                items: []
+            });
+        }
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // QUICK PICKS (Curated selection for home page)
     // ═══════════════════════════════════════════════════════════════════════════
     
     fastify.get('/quick', {
         schema: {
-            description: 'Get quick calm tracks (under 5 minutes)',
-            tags: ['audio']
+            tags: ['audio'],
+            summary: 'Get quick picks',
+            description: 'Get a curated selection of popular calm audio'
         }
     }, async (request, reply) => {
         try {
-            const nature = await audioService.searchFreesound('calm relaxing short', 1, 10);
-            
-            // Filter for tracks under 5 minutes
-            const quickTracks = nature.results.filter(track => track.duration <= 300);
+            // Get a mix from different categories
+            const [nature, music, sleep] = await Promise.all([
+                audioService.getNatureSounds(),
+                audioService.getCalmMusic(),
+                audioService.getSleepSounds()
+            ]);
+
+            // Mix and select top items
+            const items = [
+                ...nature.slice(0, 4),
+                ...music.slice(0, 3),
+                ...sleep.slice(0, 3)
+            ];
 
             return {
                 success: true,
-                title: 'Quick Calm',
-                description: 'Short tracks for quick relaxation',
-                items: quickTracks,
+                category: 'quick',
+                items,
+                total: items.length,
                 loop_allowed: true,
                 sleep_timer_supported: true
             };
         } catch (error) {
-            fastify.log.error('Quick calm error:', error);
-            return reply.code(500).send({
+            fastify.log.error('Quick picks error:', error);
+            return reply.status(500).send({
                 success: false,
-                error: 'Failed to fetch quick calm content'
+                error: 'Failed to fetch quick picks',
+                items: []
             });
         }
     });
-}
 
-export default audioRoutes;
+    // ═══════════════════════════════════════════════════════════════════════════
+    // HEALTH CHECK
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    fastify.get('/health', {
+        schema: {
+            tags: ['audio'],
+            summary: 'Audio service health check',
+            description: 'Check if audio services are operational'
+        }
+    }, async (request, reply) => {
+        return {
+            success: true,
+            service: 'audio',
+            sources: {
+                freesound: !!process.env.FREESOUND_API_KEY,
+                jamendo: !!process.env.JAMENDO_CLIENT_ID
+            },
+            categories: ['nature', 'ambient', 'meditation', 'asmr', 'sleep', 'focus', 'music'],
+            timestamp: new Date().toISOString()
+        };
+    });
+}
