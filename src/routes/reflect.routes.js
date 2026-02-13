@@ -14,7 +14,8 @@ import {
     HomeMood, 
     RoutineCompletion,
     RoutineStreak,
-    QuestProgress, 
+    QuestProgress,
+    QuestSectionAnswer,
     TestResult, 
     QuizResult,
     CalmAnxietyEntry,
@@ -666,6 +667,22 @@ export default async function reflectRoutes(fastify) {
     // SELF-DISCOVERY QUEST
     // ═══════════════════════════════════════════════════════════════════════════
     
+    // Quest structure definition (matches Android hardcoded data)
+    const QUEST_STRUCTURE = [
+        {
+            id: 'emotional_awareness',
+            sections: ['emotional_clarity', 'pattern_recognition', 'emotional_strength']
+        },
+        {
+            id: 'mindset_growth',
+            sections: ['self_talk', 'fear_risk', 'growth_indicator']
+        },
+        {
+            id: 'core_personality',
+            sections: ['social_energy', 'emotional_energy', 'core_motivation']
+        }
+    ];
+    
     /**
      * Get quest progress
      */
@@ -682,17 +699,23 @@ export default async function reflectRoutes(fastify) {
         if (!progress) {
             progress = await QuestProgress.create({
                 userId: request.user.id,
-                completedTests: [],
-                totalRequired: 3
+                completedSections: [],
+                completedQuests: []
             });
         }
         
         return {
             success: true,
             progress: {
-                completedCount: progress.completedTests.length,
-                totalRequired: progress.totalRequired,
-                completedTests: progress.completedTests,
+                completedSections: progress.completedSections.map(s => ({
+                    questId: s.questId,
+                    sectionId: s.sectionId,
+                    completedAt: s.completedAt?.toISOString() || null
+                })),
+                completedQuests: progress.completedQuests.map(q => ({
+                    questId: q.questId,
+                    completedAt: q.completedAt?.toISOString() || null
+                })),
                 badgeEarned: progress.badgeEarned,
                 badgeType: progress.badgeType,
                 badgeEarnedAt: progress.badgeEarnedAt?.toISOString() || null
@@ -701,76 +724,158 @@ export default async function reflectRoutes(fastify) {
     });
     
     /**
-     * Add completed test to quest
+     * Complete a quest section (save answers + update progress)
      */
-    fastify.post('/quest/complete-test', {
+    fastify.post('/quest/complete-section', {
         schema: {
             tags: ['Reflect'],
-            summary: 'Mark test as completed for quest',
+            summary: 'Complete a quest section with answers',
             security: [{ bearerAuth: [] }],
             body: {
                 type: 'object',
-                required: ['testId', 'resultId'],
+                required: ['questId', 'sectionId', 'answers'],
                 properties: {
-                    testId: { type: 'string' },
-                    resultId: { type: 'string' }
+                    questId: { type: 'string' },
+                    sectionId: { type: 'string' },
+                    questTitle: { type: 'string' },
+                    sectionTitle: { type: 'string' },
+                    answers: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            required: ['questionIndex', 'questionText', 'answer'],
+                            properties: {
+                                questionIndex: { type: 'number' },
+                                questionText: { type: 'string' },
+                                answer: { type: 'string' }
+                            }
+                        }
+                    }
                 }
             }
         },
         preHandler: [fastify.authenticate]
     }, async (request, reply) => {
-        const { testId, resultId } = request.body;
+        const { questId, sectionId, questTitle, sectionTitle, answers } = request.body;
+        const userId = request.user.id;
         
-        let progress = await QuestProgress.findOne({ userId: request.user.id });
-        
-        if (!progress) {
-            progress = await QuestProgress.create({
-                userId: request.user.id,
-                completedTests: [],
-                totalRequired: 3
-            });
-        }
-        
-        // Check if already completed this test for quest
-        const alreadyCompleted = progress.completedTests.some(t => t.testId === testId);
-        if (alreadyCompleted) {
-            return {
+        try {
+            // Save or update the section answers (upsert)
+            await QuestSectionAnswer.findOneAndUpdate(
+                { userId, questId, sectionId },
+                {
+                    userId,
+                    questId,
+                    sectionId,
+                    questTitle: questTitle || '',
+                    sectionTitle: sectionTitle || '',
+                    answers,
+                    completedAt: new Date()
+                },
+                { upsert: true, new: true }
+            );
+            
+            // Get or create quest progress
+            let progress = await QuestProgress.findOne({ userId });
+            if (!progress) {
+                progress = new QuestProgress({ userId, completedSections: [], completedQuests: [] });
+            }
+            
+            // Add section to completed if not already there
+            const alreadyCompleted = progress.completedSections.some(
+                s => s.questId === questId && s.sectionId === sectionId
+            );
+            
+            if (!alreadyCompleted) {
+                progress.completedSections.push({
+                    questId,
+                    sectionId,
+                    completedAt: new Date()
+                });
+            }
+            
+            // Check if this quest is now fully completed
+            const quest = QUEST_STRUCTURE.find(q => q.id === questId);
+            if (quest) {
+                const allSectionsDone = quest.sections.every(secId =>
+                    progress.completedSections.some(s => s.questId === questId && s.sectionId === secId)
+                );
+                
+                const questAlreadyCompleted = progress.completedQuests.some(q => q.questId === questId);
+                
+                if (allSectionsDone && !questAlreadyCompleted) {
+                    progress.completedQuests.push({
+                        questId,
+                        completedAt: new Date()
+                    });
+                }
+            }
+            
+            // Check if ALL quests are done — award badge
+            const allQuestsDone = QUEST_STRUCTURE.every(q =>
+                progress.completedQuests.some(cq => cq.questId === q.id)
+            );
+            
+            if (allQuestsDone && !progress.badgeEarned) {
+                progress.badgeEarned = true;
+                progress.badgeEarnedAt = new Date();
+                progress.badgeType = 'self_aware';
+            }
+            
+            await progress.save();
+            
+            return reply.code(201).send({
                 success: true,
                 progress: {
-                    completedCount: progress.completedTests.length,
-                    totalRequired: progress.totalRequired,
+                    completedSections: progress.completedSections.map(s => ({
+                        questId: s.questId,
+                        sectionId: s.sectionId,
+                        completedAt: s.completedAt?.toISOString() || null
+                    })),
+                    completedQuests: progress.completedQuests.map(q => ({
+                        questId: q.questId,
+                        completedAt: q.completedAt?.toISOString() || null
+                    })),
                     badgeEarned: progress.badgeEarned,
-                    message: 'Test already completed for quest'
+                    badgeType: progress.badgeType,
+                    newBadge: allQuestsDone && progress.badgeType === 'self_aware'
                 }
-            };
+            });
+        } catch (error) {
+            request.log.error(error);
+            return reply.code(500).send({
+                success: false,
+                error: 'Failed to save quest section'
+            });
         }
+    });
+    
+    /**
+     * Get all saved quest answers (for Reflect history)
+     */
+    fastify.get('/quest/answers', {
+        schema: {
+            tags: ['Reflect'],
+            summary: 'Get all saved quest section answers',
+            security: [{ bearerAuth: [] }]
+        },
+        preHandler: [fastify.authenticate]
+    }, async (request) => {
+        const answers = await QuestSectionAnswer.find({ userId: request.user.id })
+            .sort({ completedAt: -1 });
         
-        // Add completed test
-        progress.completedTests.push({
-            testId,
-            completedAt: new Date(),
-            resultId
-        });
-        
-        // Check if quest complete - award badge
-        if (progress.completedTests.length >= progress.totalRequired && !progress.badgeEarned) {
-            progress.badgeEarned = true;
-            progress.badgeEarnedAt = new Date();
-            progress.badgeType = 'self_discovery_explorer';
-        }
-        
-        await progress.save();
-        
-        return reply.code(201).send({
+        return {
             success: true,
-            progress: {
-                completedCount: progress.completedTests.length,
-                totalRequired: progress.totalRequired,
-                badgeEarned: progress.badgeEarned,
-                badgeType: progress.badgeType,
-                newBadge: progress.badgeEarned && progress.completedTests.length === progress.totalRequired
-            }
-        });
+            answers: answers.map(a => ({
+                id: a._id.toString(),
+                questId: a.questId,
+                sectionId: a.sectionId,
+                questTitle: a.questTitle,
+                sectionTitle: a.sectionTitle,
+                answers: a.answers,
+                completedAt: a.completedAt?.toISOString() || null
+            }))
+        };
     });
     
     // ═══════════════════════════════════════════════════════════════════════════

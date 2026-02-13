@@ -117,20 +117,20 @@ const questProgressSchema = new mongoose.Schema({
         index: true
     },
     
-    // Tests completed for current quest
-    completedTests: [{
-        testId: String,
-        completedAt: Date,
-        resultId: String // Reference to test result
+    // Sections completed (questId + sectionId pairs)
+    completedSections: [{
+        questId: String,
+        sectionId: String,
+        completedAt: { type: Date, default: Date.now }
     }],
     
-    // Total tests required for quest
-    totalRequired: {
-        type: Number,
-        default: 3
-    },
+    // Quests fully completed (all 3 sections done)
+    completedQuests: [{
+        questId: String,
+        completedAt: { type: Date, default: Date.now }
+    }],
     
-    // Badge earned
+    // Badge earned when all 9 sections (3 quests × 3 sections) are complete
     badgeEarned: {
         type: Boolean,
         default: false
@@ -156,6 +156,48 @@ const questProgressSchema = new mongoose.Schema({
     timestamps: true,
     collection: 'quest_progress'
 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Quest Section Answers Schema  (stores user answers for Reflect history)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const questSectionAnswerSchema = new mongoose.Schema({
+    userId: {
+        type: String,
+        required: true,
+        index: true
+    },
+    questId: {
+        type: String,
+        required: true
+    },
+    sectionId: {
+        type: String,
+        required: true
+    },
+    questTitle: {
+        type: String,
+        default: ''
+    },
+    sectionTitle: {
+        type: String,
+        default: ''
+    },
+    answers: [{
+        questionIndex: Number,
+        questionText: String,
+        answer: String
+    }],
+    completedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    timestamps: true,
+    collection: 'quest_section_answers'
+});
+
+questSectionAnswerSchema.index({ userId: 1, questId: 1, sectionId: 1 }, { unique: true });
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Test Results Schema
@@ -555,6 +597,7 @@ export const HomeMood = reflectDb.model('HomeMood', homeMoodSchema);
 export const RoutineCompletion = reflectDb.model('RoutineCompletion', routineCompletionSchema);
 export const RoutineStreak = reflectDb.model('RoutineStreak', routineStreakSchema);
 export const QuestProgress = reflectDb.model('QuestProgress', questProgressSchema);
+export const QuestSectionAnswer = reflectDb.model('QuestSectionAnswer', questSectionAnswerSchema);
 export const TestResult = reflectDb.model('TestResult', testResultSchema);
 export const QuizResult = reflectDb.model('QuizResult', quizResultSchema);
 export const CalmAnxietyEntry = reflectDb.model('CalmAnxietyEntry', calmAnxietyEntrySchema);
