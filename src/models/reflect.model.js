@@ -382,6 +382,67 @@ const calmAnxietyEntrySchema = new mongoose.Schema({
 calmAnxietyEntrySchema.index({ userId: 1, createdAt: -1 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Mood Journal Entry Schema (Track Your Mood - detailed mood tracking from routine)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const moodJournalEntrySchema = new mongoose.Schema({
+    userId: {
+        type: String,
+        required: true,
+        index: true
+    },
+    
+    // Note/thoughts
+    note: {
+        type: String,
+        default: '',
+        maxlength: 2000
+    },
+    
+    // Mood level (0 = Unhappy, 0.5 = Normal, 1 = Happy)
+    moodLevel: {
+        type: Number,
+        required: true,
+        min: 0,
+        max: 1
+    },
+    
+    // Selected feelings
+    feelings: [{
+        id: String,
+        label: String,
+        isPositive: Boolean
+    }],
+    
+    // Selected activities
+    activities: [{
+        id: String,
+        label: String,
+        emoji: String
+    }],
+    
+    // Optional photo URI
+    photoUri: {
+        type: String,
+        default: null
+    },
+    
+    // Created timestamp
+    createdAt: {
+        type: Date,
+        default: Date.now,
+        immutable: true,
+        index: true
+    }
+}, {
+    timestamps: false,
+    collection: 'mood_journal_entries'
+});
+
+// Compound index for efficient queries
+moodJournalEntrySchema.index({ userId: 1, createdAt: -1 });
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Liked Songs Schema (for Breathing/Calm page)
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -441,13 +502,61 @@ const likedSongSchema = new mongoose.Schema({
 likedSongSchema.index({ userId: 1, songId: 1, source: 1 }, { unique: true });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// Routine Streak Schema - Track user's streak for completing all daily tasks
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const routineStreakSchema = new mongoose.Schema({
+    userId: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true
+    },
+    
+    // Current streak (consecutive days with all 3 tasks completed)
+    currentStreak: {
+        type: Number,
+        default: 0
+    },
+    
+    // Longest streak ever achieved
+    longestStreak: {
+        type: Number,
+        default: 0
+    },
+    
+    // Last date when all 3 tasks were completed (YYYY-MM-DD)
+    lastCompletedDate: {
+        type: String,
+        default: null
+    },
+    
+    // Total days with all tasks completed
+    totalCompletedDays: {
+        type: Number,
+        default: 0
+    },
+    
+    // Last updated timestamp
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    timestamps: false,
+    collection: 'routine_streaks'
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // Create Models
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const HomeMood = reflectDb.model('HomeMood', homeMoodSchema);
 export const RoutineCompletion = reflectDb.model('RoutineCompletion', routineCompletionSchema);
+export const RoutineStreak = reflectDb.model('RoutineStreak', routineStreakSchema);
 export const QuestProgress = reflectDb.model('QuestProgress', questProgressSchema);
 export const TestResult = reflectDb.model('TestResult', testResultSchema);
 export const QuizResult = reflectDb.model('QuizResult', quizResultSchema);
 export const CalmAnxietyEntry = reflectDb.model('CalmAnxietyEntry', calmAnxietyEntrySchema);
+export const MoodJournalEntry = reflectDb.model('MoodJournalEntry', moodJournalEntrySchema);
 export const LikedSong = reflectDb.model('LikedSong', likedSongSchema);

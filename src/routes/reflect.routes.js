@@ -12,13 +12,18 @@
 
 import { 
     HomeMood, 
-    RoutineCompletion, 
+    RoutineCompletion,
+    RoutineStreak,
     QuestProgress, 
     TestResult, 
     QuizResult,
     CalmAnxietyEntry,
+    MoodJournalEntry,
     LikedSong 
 } from '../models/reflect.model.js';
+
+// Define the required daily routine tasks
+const DAILY_ROUTINE_TASKS = ['track_mood', 'calm_anxiety', 'breathing'];
 
 export default async function reflectRoutes(fastify) {
     
@@ -161,20 +166,25 @@ export default async function reflectRoutes(fastify) {
                 properties: {
                     taskId: { type: 'string' },
                     category: { type: 'string' },
-                    title: { type: 'string' }
+                    title: { type: 'string' },
+                    completedDate: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' }
                 }
             }
         },
         preHandler: [fastify.authenticate]
     }, async (request, reply) => {
-        const { taskId, category, title } = request.body;
-        const completedDate = new Date().toISOString().split('T')[0];
+        const { taskId, category, title, completedDate: clientDate } = request.body;
+        // Use client's local date if provided, otherwise fall back to server local date
+        const now = new Date();
+        const serverDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        const completedDate = clientDate || serverDate;
+        const userId = request.user.id;
         
         // Upsert to avoid duplicates
         const completion = await RoutineCompletion.findOneAndUpdate(
-            { userId: request.user.id, taskId, completedDate },
+            { userId, taskId, completedDate },
             { 
-                userId: request.user.id,
+                userId,
                 taskId,
                 category,
                 title,
@@ -183,6 +193,22 @@ export default async function reflectRoutes(fastify) {
             },
             { upsert: true, new: true }
         );
+        
+        // Check if all 3 tasks are completed for today and update streak
+        const todaysCompletions = await RoutineCompletion.find({
+            userId,
+            completedDate
+        });
+        
+        const completedTaskIds = todaysCompletions.map(c => c.taskId);
+        const allTasksCompleted = DAILY_ROUTINE_TASKS.every(task => completedTaskIds.includes(task));
+        
+        let streakData = null;
+        
+        if (allTasksCompleted) {
+            // Update streak data
+            streakData = await updateStreakOnCompletion(userId, completedDate);
+        }
         
         return reply.code(201).send({
             success: true,
@@ -193,8 +219,77 @@ export default async function reflectRoutes(fastify) {
                 title: completion.title,
                 completedDate: completion.completedDate,
                 completedAt: completion.completedAt.toISOString()
-            }
+            },
+            allTasksCompleted,
+            streak: streakData
         });
+    });
+    
+    /**
+     * Get routine streak data
+     */
+    fastify.get('/routine/streak', {
+        schema: {
+            tags: ['Reflect'],
+            summary: 'Get routine streak data',
+            security: [{ bearerAuth: [] }]
+        },
+        preHandler: [fastify.authenticate]
+    }, async (request) => {
+        const userId = request.user.id;
+        const today = new Date().toISOString().split('T')[0];
+        
+        // Get or create streak record
+        let streak = await RoutineStreak.findOne({ userId });
+        
+        if (!streak) {
+            streak = await RoutineStreak.create({
+                userId,
+                currentStreak: 0,
+                longestStreak: 0,
+                lastCompletedDate: null,
+                totalCompletedDays: 0
+            });
+        }
+        
+        // Calculate current streak considering if streak is still active
+        const currentStreak = calculateCurrentStreak(streak.lastCompletedDate, streak.currentStreak, today);
+        
+        // Get today's completion status
+        const todaysCompletions = await RoutineCompletion.find({ userId, completedDate: today });
+        const completedTaskIds = todaysCompletions.map(c => c.taskId);
+        const todayCompleted = DAILY_ROUTINE_TASKS.every(task => completedTaskIds.includes(task));
+        
+        // Get completions for the week for UI display
+        const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+        const weekCompletions = await RoutineCompletion.find({
+            userId,
+            completedDate: { $gte: weekAgo }
+        });
+        
+        // Group by date and check which days have all tasks
+        const completedDaysByDate = weekCompletions.reduce((acc, c) => {
+            if (!acc[c.completedDate]) acc[c.completedDate] = [];
+            acc[c.completedDate].push(c.taskId);
+            return acc;
+        }, {});
+        
+        const fullyCompletedDays = Object.entries(completedDaysByDate)
+            .filter(([_, tasks]) => DAILY_ROUTINE_TASKS.every(t => tasks.includes(t)))
+            .map(([date]) => date);
+        
+        return {
+            success: true,
+            streak: {
+                currentStreak,
+                longestStreak: streak.longestStreak,
+                lastCompletedDate: streak.lastCompletedDate,
+                totalCompletedDays: streak.totalCompletedDays,
+                todayCompleted,
+                completedTasksToday: completedTaskIds,
+                fullyCompletedDaysThisWeek: fullyCompletedDays
+            }
+        };
     });
     
     /**
@@ -235,6 +330,7 @@ export default async function reflectRoutes(fastify) {
                 taskId: c.taskId,
                 category: c.category,
                 title: c.title,
+                completedDate: c.completedDate,
                 completedAt: c.completedAt.toISOString()
             });
             return acc;
@@ -402,6 +498,165 @@ export default async function reflectRoutes(fastify) {
                 primaryTrigger: entry.primaryTrigger,
                 completedFully: entry.completedFully,
                 durationSeconds: entry.durationSeconds,
+                createdAt: entry.createdAt.toISOString()
+            }
+        };
+    });
+    
+    // ═══════════════════════════════════════════════════════════════════════════
+    // MOOD JOURNAL (Track Your Mood - detailed entries from routine)
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    /**
+     * Save mood journal entry
+     */
+    fastify.post('/mood-journal', {
+        schema: {
+            tags: ['Reflect'],
+            summary: 'Save mood journal entry from Track Your Mood routine',
+            security: [{ bearerAuth: [] }],
+            body: {
+                type: 'object',
+                required: ['moodLevel'],
+                properties: {
+                    note: { type: 'string', maxLength: 2000 },
+                    moodLevel: { type: 'number', minimum: 0, maximum: 1 },
+                    feelings: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'string' },
+                                label: { type: 'string' },
+                                isPositive: { type: 'boolean' }
+                            }
+                        }
+                    },
+                    activities: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                id: { type: 'string' },
+                                label: { type: 'string' },
+                                emoji: { type: 'string' }
+                            }
+                        }
+                    },
+                    photoUri: { type: 'string' }
+                }
+            }
+        },
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { note, moodLevel, feelings, activities, photoUri } = request.body;
+        
+        const entry = await MoodJournalEntry.create({
+            userId: request.user.id,
+            note: note || '',
+            moodLevel,
+            feelings: feelings || [],
+            activities: activities || [],
+            photoUri: photoUri || null
+        });
+        
+        return reply.code(201).send({
+            success: true,
+            entry: {
+                id: entry._id.toString(),
+                note: entry.note,
+                moodLevel: entry.moodLevel,
+                feelings: entry.feelings,
+                activities: entry.activities,
+                photoUri: entry.photoUri,
+                createdAt: entry.createdAt.toISOString()
+            }
+        });
+    });
+    
+    /**
+     * Get mood journal history
+     */
+    fastify.get('/mood-journal', {
+        schema: {
+            tags: ['Reflect'],
+            summary: 'Get mood journal history',
+            security: [{ bearerAuth: [] }],
+            querystring: {
+                type: 'object',
+                properties: {
+                    limit: { type: 'integer', default: 30, maximum: 100 },
+                    offset: { type: 'integer', default: 0 }
+                }
+            }
+        },
+        preHandler: [fastify.authenticate]
+    }, async (request) => {
+        const { limit = 30, offset = 0 } = request.query;
+        
+        const [entries, total] = await Promise.all([
+            MoodJournalEntry.find({ userId: request.user.id })
+                .sort({ createdAt: -1 })
+                .skip(offset)
+                .limit(limit),
+            MoodJournalEntry.countDocuments({ userId: request.user.id })
+        ]);
+        
+        return {
+            success: true,
+            entries: entries.map(e => ({
+                id: e._id.toString(),
+                note: e.note,
+                moodLevel: e.moodLevel,
+                feelings: e.feelings,
+                activities: e.activities,
+                photoUri: e.photoUri,
+                createdAt: e.createdAt.toISOString()
+            })),
+            pagination: { total, limit, offset, hasMore: offset + entries.length < total }
+        };
+    });
+    
+    /**
+     * Get single mood journal entry
+     */
+    fastify.get('/mood-journal/:entryId', {
+        schema: {
+            tags: ['Reflect'],
+            summary: 'Get a specific mood journal entry',
+            security: [{ bearerAuth: [] }],
+            params: {
+                type: 'object',
+                properties: {
+                    entryId: { type: 'string' }
+                }
+            }
+        },
+        preHandler: [fastify.authenticate]
+    }, async (request, reply) => {
+        const { entryId } = request.params;
+        
+        const entry = await MoodJournalEntry.findOne({ 
+            _id: entryId, 
+            userId: request.user.id 
+        });
+        
+        if (!entry) {
+            return reply.code(404).send({
+                success: false,
+                error: 'Entry not found'
+            });
+        }
+        
+        return {
+            success: true,
+            entry: {
+                id: entry._id.toString(),
+                note: entry.note,
+                moodLevel: entry.moodLevel,
+                feelings: entry.feelings,
+                activities: entry.activities,
+                photoUri: entry.photoUri,
                 createdAt: entry.createdAt.toISOString()
             }
         };
@@ -970,24 +1225,129 @@ export default async function reflectRoutes(fastify) {
 }
 
 /**
- * Calculate routine streak
+ * Update streak when all daily tasks are completed
+ */
+async function updateStreakOnCompletion(userId, completedDate) {
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    
+    // Get or create streak record
+    let streak = await RoutineStreak.findOne({ userId });
+    
+    if (!streak) {
+        streak = await RoutineStreak.create({
+            userId,
+            currentStreak: 1,
+            longestStreak: 1,
+            lastCompletedDate: completedDate,
+            totalCompletedDays: 1
+        });
+        return {
+            currentStreak: 1,
+            longestStreak: 1,
+            totalCompletedDays: 1,
+            isNewRecord: true
+        };
+    }
+    
+    // Check if this is the same day (already counted)
+    if (streak.lastCompletedDate === completedDate) {
+        return {
+            currentStreak: streak.currentStreak,
+            longestStreak: streak.longestStreak,
+            totalCompletedDays: streak.totalCompletedDays,
+            isNewRecord: false
+        };
+    }
+    
+    let newCurrentStreak;
+    let isNewRecord = false;
+    
+    // Check if streak continues
+    if (streak.lastCompletedDate === yesterday) {
+        // Continuing streak
+        newCurrentStreak = streak.currentStreak + 1;
+    } else if (streak.lastCompletedDate === today) {
+        // Already completed today
+        newCurrentStreak = streak.currentStreak;
+    } else {
+        // Streak broken, starting fresh
+        newCurrentStreak = 1;
+    }
+    
+    const newLongestStreak = Math.max(streak.longestStreak, newCurrentStreak);
+    isNewRecord = newCurrentStreak > streak.longestStreak;
+    
+    // Update streak record
+    streak.currentStreak = newCurrentStreak;
+    streak.longestStreak = newLongestStreak;
+    streak.lastCompletedDate = completedDate;
+    streak.totalCompletedDays = streak.totalCompletedDays + 1;
+    streak.updatedAt = new Date();
+    await streak.save();
+    
+    return {
+        currentStreak: newCurrentStreak,
+        longestStreak: newLongestStreak,
+        totalCompletedDays: streak.totalCompletedDays,
+        isNewRecord
+    };
+}
+
+/**
+ * Calculate current streak considering if it's still active
+ */
+function calculateCurrentStreak(lastCompletedDate, storedStreak, today) {
+    if (!lastCompletedDate) return 0;
+    
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    
+    // If last completion was today or yesterday, streak is active
+    if (lastCompletedDate === today || lastCompletedDate === yesterday) {
+        return storedStreak;
+    }
+    
+    // Streak is broken
+    return 0;
+}
+
+/**
+ * Calculate routine streak (legacy - for backwards compatibility)
  */
 function calculateStreak(completions) {
     if (!completions.length) return 0;
     
-    const dates = [...new Set(completions.map(c => c.completedDate))].sort().reverse();
+    // Group completions by date
+    const completionsByDate = completions.reduce((acc, c) => {
+        if (!acc[c.completedDate]) acc[c.completedDate] = [];
+        acc[c.completedDate].push(c.taskId);
+        return acc;
+    }, {});
     
-    let streak = 0;
+    // Find dates where ALL 3 tasks were completed
+    const fullyCompletedDates = Object.entries(completionsByDate)
+        .filter(([_, tasks]) => DAILY_ROUTINE_TASKS.every(t => tasks.includes(t)))
+        .map(([date]) => date)
+        .sort()
+        .reverse();
+    
+    if (!fullyCompletedDates.length) return 0;
+    
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     
-    // Check if today or yesterday has completions
-    if (dates[0] !== today && dates[0] !== yesterday) return 0;
+    // Check if today or yesterday has all completions
+    if (fullyCompletedDates[0] !== today && fullyCompletedDates[0] !== yesterday) return 0;
     
-    for (let i = 0; i < dates.length; i++) {
-        const expectedDate = new Date(Date.now() - (i * 86400000)).toISOString().split('T')[0];
-        if (dates[i] === expectedDate || (i === 0 && dates[i] === yesterday)) {
+    let streak = 0;
+    let checkDate = fullyCompletedDates[0] === today ? today : yesterday;
+    
+    for (const date of fullyCompletedDates) {
+        if (date === checkDate) {
             streak++;
+            // Move to previous day
+            const prevDate = new Date(new Date(checkDate).getTime() - 86400000).toISOString().split('T')[0];
+            checkDate = prevDate;
         } else {
             break;
         }
